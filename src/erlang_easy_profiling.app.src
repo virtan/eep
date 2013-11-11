@@ -1,0 +1,12 @@
+{application, erlang_easy_profiling,
+ [
+  {description, "Erlang Easy Profiling (dbg:trace* to kcachegrind)"},
+  {vsn, "1"},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib
+                 ]},
+  {mod, { erlang_easy_profiling_app, []}},
+  {env, []}
+ ]}.
