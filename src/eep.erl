@@ -216,6 +216,8 @@ save_receive_cycle(IOD, P, MinTime, MaxTime, StartTime, Waiting, Buffer) ->
             save_receive_cycle(IOD, P, MinTime, MaxTime, StartTime, Waiting, Buffer)
     end.
 
+pid_item_to_bytes({Pid, #cvn_item{mfa = undefined}} = Item) ->
+    pid_item_to_bytes({Pid, Item#cvn_item{mfa = {undefined, undefined, 0}}});
 pid_item_to_bytes({Pid, #cvn_item{mfa = {M, F, A}, self = Self, subcalls = SubCalls}}) ->
     Block1 = io_lib:format("ob=~s~n"
         "fl=~w~n"
