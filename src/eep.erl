@@ -144,7 +144,7 @@ convertor_child(#cvn_child_state{pid = Pid, delta = Delta, delta_ts = DeltaTS, m
                               min_time = min_ts(MinTime, TS),
                               max_time = max_ts(MaxTime, TS)});
         finalize ->
-            convertor_unwind({nonexistent, nonexistent, 999}, MaxTime - Delta, nosub, queue:out_r(Stack), {Pid, Saver}),
+            convertor_unwind({nonexistent, nonexistent, 999}, ts(MaxTime) - Delta, nosub, queue:out_r(Stack), {Pid, Saver}),
             Saver ! {finalize, Pid, MinTime, MaxTime - Delta},
             get_out
     end.
