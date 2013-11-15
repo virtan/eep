@@ -145,7 +145,7 @@ convertor_child(#cvn_child_state{pid = Pid, delta = Delta, delta_ts = DeltaTS, m
                               max_time = max_ts(MaxTime, TS)});
         finalize ->
             convertor_unwind({nonexistent, nonexistent, 999}, MaxTime - Delta, nosub, queue:out_r(Stack), {Pid, Saver}),
-            Saver ! {finalize, Pid, MinTime, MaxTime},
+            Saver ! {finalize, Pid, MinTime, MaxTime - Delta},
             get_out
     end.
             
@@ -158,13 +158,13 @@ convertor_unwind(MFA, TS, nosub, {{value, #cvn_item{mfa = MFA, ts = TS}} = Last,
 convertor_unwind(MFA, TS, nosub, {{value, #cvn_item{mfa = CMFA, self = Self, calls = CCalls, ts = CTS} = Last},
                                          Dropped}, {Pid, Saver}) ->
     TD = Self + td(CTS, TS),
-    Saver ! {bytes, pid_item_to_bytes({Pid, Last#cvn_item{self = TD div CCalls}}), CTS},
+    Saver ! {bytes, pid_item_to_bytes({Pid, Last#cvn_item{self = TD div CCalls}}), TS},
     convertor_unwind(MFA, TS, {CMFA, CCalls}, queue:out_r(Dropped), {Pid, Saver});
 convertor_unwind(MFA, TS, Sub, {{value, #cvn_item{mfa = MFA, ts = CTS, subcalls = SubCalls} = Last}, Dropped}, _) ->
     queue:in(Last#cvn_item{ts = ts(TS), subcalls = subcall_update(Sub, SubCalls, td(CTS, TS))}, Dropped);
 convertor_unwind(MFA, TS, Sub, {{value, #cvn_item{mfa = CMFA, calls = CCalls, ts = CTS,
                                                             subcalls = CSubCalls} = Last}, Dropped}, {Pid, Saver}) ->
-          Saver ! {bytes, pid_item_to_bytes({Pid, Last#cvn_item{subcalls = subcall_update(Sub, CSubCalls, td(CTS, TS))}}), CTS},
+          Saver ! {bytes, pid_item_to_bytes({Pid, Last#cvn_item{subcalls = subcall_update(Sub, CSubCalls, td(CTS, TS))}}), TS},
     convertor_unwind(MFA, TS, {CMFA, CCalls}, queue:out_r(Dropped), {Pid, Saver});
 convertor_unwind(MFA, TS, Sub, {empty, EmptyQueue}, _) ->
     % recreating top level
