@@ -12,19 +12,30 @@
         ]).
 
 start_tracing(FileName) ->
-    start_tracing(FileName, '_').
+    start_tracing(FileName, [], '_').
 
-start_tracing(FileName, Module) ->
+start_tracing(FileName, Options) ->
+    start_tracing(FileName, Options, '_').
+
+% Options:
+%     spawn — include link between parent and child processes
+start_tracing(FileName, Options, Module) ->
     TraceFun = dbg:trace_port(file, tracefile(FileName)),
     {ok, _Tracer} = dbg:tracer(port, TraceFun),
     dbg:tpl(Module, []),
-    dbg:p(all, [call, timestamp, return_to, arity, running]).
+    dbg:p(all, [call, timestamp, return_to, arity, running] ++
+        proplists:substitute_aliases([{spawn, procs}], Options)).
 
 stop_tracing() ->
     dbg:stop_clear().
 
 convert_tracing(FileName) ->
-    do_something_with_tracing(FileName, fun callgrind_convertor/2).
+    convert_tracing(FileName, []).
+
+% Options:
+%     waits — include time spent waiting for event (by default don't include)
+convert_tracing(FileName, Options) ->
+    do_something_with_tracing({FileName, Options}, fun callgrind_convertor/2).
 
 dump_tracing(FileName) ->
     do_something_with_tracing(FileName, fun dbg_format_dumper/2).
@@ -48,11 +59,12 @@ dumpfile(FileName) ->
     FileName ++ ".dump".
 
 -record(cvn_state, {processes = ets:new(unnamed, [public, {write_concurrency, true}, {read_concurrency, true}]),
-                    saver}).
--record(cvn_child_state, {pid, delta = 0, delta_ts = undefined, min_time = undefined, max_time = undefined, saver, stack = undefined}).
+        saver, options}).
+-record(cvn_child_state, {pid, delta = 0, delta_ts = undefined, min_time = undefined, max_time = undefined, saver,
+        stack = queue:new(), options}).
 -record(cvn_item, {mfa, self = 0, ts, calls = 1, returns = 0, subcalls = orddict:new()}).
 
-dbg_format_dumper({trace_ts, _, _, _, _} = Msg, {IOD, Buffer, ReportedTime, S}) ->
+dbg_format_dumper(Msg, {IOD, Buffer, ReportedTime, S}) when element(1, Msg) == trace_ts ->
     Bytes = iolist_to_binary(io_lib:format("~100000p~n", [Msg])),
     NewBuffer = case size(Buffer) of
         N when N < 20*1024*1024 -> <<Buffer/binary, Bytes/binary>>;
@@ -71,10 +83,10 @@ dbg_format_dumper(end_of_trace, {IOD, Buffer, _, S}) ->
     file:close(IOD),
     io:format("~b processed~ndone~n", [S]).
 
-callgrind_convertor({trace_ts, Pid, _, _, _} = Msg, #cvn_state{processes = Processes, saver = Saver} = State) ->
+callgrind_convertor({trace_ts, Pid, _, _, _} = Msg, #cvn_state{processes = Processes, saver = Saver, options = Options} = State) ->
     case ets:lookup(Processes, Pid) of
         [] ->
-            Child = spawn_link(?MODULE, convertor_child, [#cvn_child_state{pid = Pid, saver = Saver}]),
+            Child = spawn_link(?MODULE, convertor_child, [#cvn_child_state{pid = Pid, saver = Saver, options = Options}]),
             Child ! Msg,
             ets:insert(Processes, {Pid, Child}),
             State;
@@ -82,12 +94,12 @@ callgrind_convertor({trace_ts, Pid, _, _, _} = Msg, #cvn_state{processes = Proce
             Child ! Msg,
             State
     end;
-callgrind_convertor(default_state, FileName) ->
+callgrind_convertor(default_state, {FileName, Options}) ->
     Saver = case FileName of
         nofile -> self();
         _ -> spawn_link(?MODULE, save_kcachegrind_format, [FileName])
     end,
-    #cvn_state{saver = Saver};
+    #cvn_state{saver = Saver, options = Options};
 callgrind_convertor(end_of_trace, #cvn_state{processes = Processes, saver = Saver}) ->
     Saver ! {wait, Processes},
     ets:foldl(fun({_, Child}, _) -> Child ! finalize end, nothing, Processes),
@@ -96,14 +108,13 @@ callgrind_convertor(UnknownMessage, #cvn_state{}) ->
     io:format("Unknown message: ~p~n", [UnknownMessage]).
 
 convertor_child(#cvn_child_state{pid = Pid, delta = Delta, delta_ts = DeltaTS, min_time = MinTime, max_time = MaxTime,
-                                 saver = Saver, stack = Stack} = State) ->
+                                 saver = Saver, stack = Stack, options = Options} = State) ->
     receive
         {trace_ts, Pid, call, MFA, TS} ->
-            NewStack = case Stack of
-                           undefined ->
-                               queue:in(#cvn_item{mfa = MFA, ts = ts(TS) - Delta}, queue:new());
-                           _ ->
-                               {{value, Last}, Dropped} = queue:out_r(Stack),
+            NewStack = case queue:out_r(Stack) of
+                           {empty, Dropped} ->
+                               queue:in(#cvn_item{mfa = MFA, ts = ts(TS) - Delta}, Dropped);
+                           {{value, Last}, Dropped} ->
                                case Last of
                                    #cvn_item{mfa = MFA, calls = Calls} ->
                                        queue:in(Last#cvn_item{calls = Calls + 1}, Dropped);
@@ -118,13 +129,7 @@ convertor_child(#cvn_child_state{pid = Pid, delta = Delta, delta_ts = DeltaTS, m
                               min_time = min_ts(MinTime, TS),
                               max_time = max_ts(MaxTime, TS)});
         {trace_ts, Pid, return_to, MFA, TS} ->
-            NewStack = case Stack of
-                           undefined ->
-                               io:format("Incomplete data~n", []),
-                               undefined;
-                           _ ->
-                               convertor_unwind(MFA, ts(TS) - Delta, nosub, queue:out_r(Stack), {Pid, Saver})
-                       end,
+            NewStack = convertor_unwind(MFA, ts(TS) - Delta, nosub, queue:out_r(Stack), {Pid, Saver}),
             convertor_child(State#cvn_child_state{
                               stack = NewStack,
                               min_time = min_ts(MinTime, TS),
@@ -135,16 +140,36 @@ convertor_child(#cvn_child_state{pid = Pid, delta = Delta, delta_ts = DeltaTS, m
                               min_time = min_ts(MinTime, TS),
                               max_time = max_ts(MaxTime, TS)});
         {trace_ts, Pid, in, _, TS} ->
-            NewDelta = Delta + case DeltaTS of
-                undefined -> 0;
+            NewDelta = Delta + case {proplists:get_value(waits, Options), DeltaTS} of
+                {_, undefined} -> 0;
+                {true, _} -> 0;
                 _ -> td(DeltaTS, TS)
             end,
             convertor_child(State#cvn_child_state{
                               delta = NewDelta,
                               min_time = min_ts(MinTime, TS),
                               max_time = max_ts(MaxTime, TS)});
+        {trace_ts, Pid, spawn, _Pid2, {M, F, Args}, TS} ->
+            Arity = length(Args),
+            NewStack = case queue:out_r(Stack) of
+                {empty, Dropped} ->
+                    queue:in(#cvn_item{mfa = {nonexistent, nonexistent, 999}, ts = ts(TS) - Delta,
+                            subcalls = subcall_update({{M, F, Arity}, 1}, orddict:new(), 0)}, Dropped);
+                {{value, #cvn_item{subcalls = SubCalls} = Last}, Dropped} ->
+                    queue:in(Last#cvn_item{subcalls = subcall_update({{M, F, Arity}, 1}, SubCalls, 0)}, Dropped)
+            end,
+            convertor_child(State#cvn_child_state{
+                              stack = NewStack,
+                              min_time = min_ts(MinTime, TS),
+                              max_time = max_ts(MaxTime, TS)});
+        {trace_ts, Pid, Activity, _, TS} when Activity =:= exit orelse Activity =:= register orelse Activity =:= unregister
+                        orelse Activity =:= link orelse Activity =:= unlink
+                        orelse Activity =:= getting_linked orelse Activity =:= getting_unlinked ->
+            convertor_child(State#cvn_child_state{
+                              min_time = min_ts(MinTime, TS),
+                              max_time = max_ts(MaxTime, TS)});
         finalize ->
-            convertor_unwind({nonexistent, nonexistent, 999}, ts(MaxTime) - Delta, nosub, queue:out_r(Stack), {Pid, Saver}),
+            convertor_unwind({nonexistent, nonexistent, 999}, MaxTime - Delta, nosub, queue:out_r(Stack), {Pid, Saver}),
             Saver ! {finalize, Pid, MinTime, MaxTime - Delta},
             get_out
     end.
@@ -166,6 +191,9 @@ convertor_unwind(MFA, TS, Sub, {{value, #cvn_item{mfa = CMFA, calls = CCalls, ts
                                                             subcalls = CSubCalls} = Last}, Dropped}, {Pid, Saver}) ->
           Saver ! {bytes, pid_item_to_bytes({Pid, Last#cvn_item{subcalls = subcall_update(Sub, CSubCalls, td(CTS, TS))}}), TS},
     convertor_unwind(MFA, TS, {CMFA, CCalls}, queue:out_r(Dropped), {Pid, Saver});
+convertor_unwind(MFA, TS, nosub, {empty, EmptyQueue}, _) ->
+    % recreating top level
+    queue:in(#cvn_item{mfa = MFA, ts = ts(TS)}, EmptyQueue);
 convertor_unwind(MFA, TS, Sub, {empty, EmptyQueue}, _) ->
     % recreating top level
     queue:in(#cvn_item{mfa = MFA, ts = ts(TS), subcalls = subcall_update(Sub, orddict:new(), 1)}, EmptyQueue);
@@ -277,8 +305,8 @@ ts(Number) -> Number.
 td(From, To) -> ts(To) - ts(From).
 
 min_ts(undefined, undefined) -> undefined;
-min_ts(undefined, Two) -> Two;
-min_ts(One, undefined) -> One;
+min_ts(undefined, Two) -> ts(Two);
+min_ts(One, undefined) -> ts(One);
 min_ts(One, Two) ->
     case {ts(One), ts(Two)} of
         {X, Y} when X < Y -> X;
@@ -286,8 +314,8 @@ min_ts(One, Two) ->
     end.
 
 max_ts(undefined, undefined) -> undefined;
-max_ts(undefined, Two) -> Two;
-max_ts(One, undefined) -> One;
+max_ts(undefined, Two) -> ts(Two);
+max_ts(One, undefined) -> ts(One);
 max_ts(One, Two) ->
     case {ts(One), ts(Two)} of
         {X, Y} when X > Y -> X;
