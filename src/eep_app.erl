@@ -1,4 +1,4 @@
--module(erlang_easy_profiling_app).
+-module(eep_app).
 
 -behaviour(application).
 
