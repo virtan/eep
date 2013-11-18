@@ -1,7 +1,8 @@
 -module(eep).
 -export([
-         start_tracing/1,
-         start_tracing/2,
+         start_file_tracing/1,
+         start_file_tracing/2,
+         start_file_tracing/3,
          stop_tracing/0,
          convert_tracing/1,
          dump_tracing/1,
@@ -11,15 +12,15 @@
          test_unwind/0
         ]).
 
-start_tracing(FileName) ->
-    start_tracing(FileName, [], '_').
+start_file_tracing(FileName) ->
+    start_file_tracing(FileName, [], '_').
 
-start_tracing(FileName, Options) ->
-    start_tracing(FileName, Options, '_').
+start_file_tracing(FileName, Options) ->
+    start_file_tracing(FileName, Options, '_').
 
 % Options:
 %     spawn — include link between parent and child processes
-start_tracing(FileName, Options, Module) ->
+start_file_tracing(FileName, Options, Module) ->
     TraceFun = dbg:trace_port(file, tracefile(FileName)),
     {ok, _Tracer} = dbg:tracer(port, TraceFun),
     dbg:tpl(Module, []),
@@ -75,6 +76,9 @@ dbg_format_dumper(Msg, {IOD, Buffer, ReportedTime, S}) when element(1, Msg) == t
         _ -> ReportedTime
     end,
     {IOD, NewBuffer, NewStamp, S + 1};
+dbg_format_dumper({drop, _}, State) ->
+    % ignore dropped
+    State;
 dbg_format_dumper(default_state, FileName) ->
     {ok, IOD} = file:open(dumpfile(FileName), [write, binary, delayed_write]),
     {IOD, <<>>, os:timestamp(), 0};
@@ -83,7 +87,9 @@ dbg_format_dumper(end_of_trace, {IOD, Buffer, _, S}) ->
     file:close(IOD),
     io:format("~b processed~ndone~n", [S]).
 
-callgrind_convertor({trace_ts, Pid, _, _, _} = Msg, #cvn_state{processes = Processes, saver = Saver, options = Options} = State) ->
+callgrind_convertor(Msg, #cvn_state{processes = Processes, saver = Saver, options = Options} = State)
+  when element(1, Msg) == trace_ts ->
+    Pid = element(2, Msg),
     case ets:lookup(Processes, Pid) of
         [] ->
             Child = spawn_link(?MODULE, convertor_child, [#cvn_child_state{pid = Pid, saver = Saver, options = Options}]),
@@ -94,6 +100,9 @@ callgrind_convertor({trace_ts, Pid, _, _, _} = Msg, #cvn_state{processes = Proce
             Child ! Msg,
             State
     end;
+callgrind_convertor({drop, _}, State) ->
+    % ignore dropped
+    State;
 callgrind_convertor(default_state, {FileName, Options}) ->
     Saver = case FileName of
         nofile -> self();
