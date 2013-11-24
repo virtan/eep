@@ -5,6 +5,7 @@
          start_file_tracing/3,
          stop_tracing/0,
          convert_tracing/1,
+         convert_tracing/2,
          dump_tracing/1,
          callgrind_convertor/2,
          convertor_child/1,
@@ -19,7 +20,7 @@ start_file_tracing(FileName, Options) ->
     start_file_tracing(FileName, Options, '_').
 
 % Options:
-%     spawn — include link between parent and child processes
+%     spawn — include link between parent and child processes (experimental and doesn't look well)
 start_file_tracing(FileName, Options, Module) ->
     TraceFun = dbg:trace_port(file, tracefile(FileName)),
     {ok, _Tracer} = dbg:tracer(port, TraceFun),
@@ -39,12 +40,12 @@ convert_tracing(FileName, Options) ->
     do_something_with_tracing({FileName, Options}, fun callgrind_convertor/2).
 
 dump_tracing(FileName) ->
-    do_something_with_tracing(FileName, fun dbg_format_dumper/2).
+    do_something_with_tracing({FileName, []}, fun dbg_format_dumper/2).
 
-do_something_with_tracing(FileName, F) ->
+do_something_with_tracing({FileName, Options}, F) ->
     case file:read_file_info(tracefile(FileName)) of
         {ok, _} ->
-            dbg:trace_client(file, tracefile(FileName), {F, F(default_state, FileName)}),
+            dbg:trace_client(file, tracefile(FileName), {F, F(default_state, {FileName, Options})}),
             working;
         {error, Reason} ->
             io:format("Error: can't open ~p: ~p~n", [tracefile(FileName), Reason])
@@ -79,7 +80,7 @@ dbg_format_dumper(Msg, {IOD, Buffer, ReportedTime, S}) when element(1, Msg) == t
 dbg_format_dumper({drop, _}, State) ->
     % ignore dropped
     State;
-dbg_format_dumper(default_state, FileName) ->
+dbg_format_dumper(default_state, {FileName, _}) ->
     {ok, IOD} = file:open(dumpfile(FileName), [write, binary, delayed_write]),
     {IOD, <<>>, os:timestamp(), 0};
 dbg_format_dumper(end_of_trace, {IOD, Buffer, _, S}) ->
