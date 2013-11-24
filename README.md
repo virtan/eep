@@ -1,7 +1,7 @@
 Erlang Easy Profiling (eep)
 ===========================
 
-Erlang Easy Profiling (eep) application provides a way to analyze an application performance and call hierarchy.
+Erlang Easy Profiling (eep) application provides a way to analyze application performance and call hierarchy.
 
 Main features:
  * no need to modify sources (doesn't need sources at all)
@@ -17,7 +17,7 @@ Main features:
 Limitations:
  * doesn't work with natively compiled code
  * doesn't support sending collected runtime data over network (will appear in future versions)
- * doesn't support parent-child links yet (will appear in future versions)
+ * doesn't support parent-child links (will appear in future versions)
 
   [6]: http://www.erlang.org/doc/man/fprof.html
   [7]: http://kcachegrind.sourceforge.net/
@@ -27,21 +27,21 @@ Limitations:
 How to
 ------
 
-On the target system:
+On target system:
 
-1. Make sure the target system can use eep module (place eep.beam at any code path)
+1. Make sure the target system can use eep module (link eep to your rebar project or place compiled eep.beam at any code path)
 2. Collect runtime data to local file
 <pre>
-eep:start_file_tracing("file_name"), timer:sleep(60000), eep:stop_tracing().
+1> eep:start_file_tracing("file_name"), timer:sleep(60000), eep:stop_tracing().
 </pre>
-3. Copy $PWD/file_name.trace out from the target system
+3. Copy $PWD/file_name.trace from the target system
 
 Outside the target system:
 
-1. Make sure collected runtime data is in current directory
+1. Make sure collected runtime data is in current directory ($PWD/file_name.trace)
 2. Convert to callgrind format
 <pre>
-eep:convert_tracing("file_name").
+1> eep:convert_tracing("file_name").
 </pre>
 3. Start kcachegrind
 <pre>
@@ -51,19 +51,19 @@ $ kcachegrind callgrind.out.file_name
 Also
 ----
 
-1. Collect only specific module calls
+1. Collect specific module calls only
 <pre>
-eep:start_file_tracing("file_name", [], my_module).
+1> eep:start_file_tracing("file_name", [], my_module).
 </pre>
-2. Include time spent waiting for event (not running on erts schedulers)
+2. Include time spent waiting for event (not running)
 <pre>
-eep:convert_tracing("file_name", [waits]).
+1> eep:convert_tracing("file_name", [waits]).
 </pre>
 3. Dump collected runtime data
 <pre>
-eep:dump_tracing("file_name").
+1> eep:dump_tracing("file_name").
 </pre>
-4. Don't separate by erlang processes
+4. Remove separation by erlang process
 <pre>
 $ grep -v "^ob=" callgrind.out.file_name > callgrind.out.merged_file_name
 </pre>
@@ -71,10 +71,11 @@ $ grep -v "^ob=" callgrind.out.file_name > callgrind.out.merged_file_name
 Useful
 ------
 
-* Turn off kcachegrind "cycle detection", eep is trying to detect cycles by itself
+* Turn off kcachegrind "cycle detection", eep detects cycles by itself
 * Absolute numbers in kcachegrind are microseconds
 * ELF Objects in kcachegrind are erlang pids
 * By default kcachegrind limits caller depth and node cost (can be changed in call graph context menu in Graph submenu)
+* Tail recursion loop within group of functions has incorrect calls and time cost values
 
 Screenshots
 -----------
