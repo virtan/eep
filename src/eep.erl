@@ -272,7 +272,11 @@ pid_item_to_bytes({Pid, #cvn_item{mfa = {M, F, A}, self = Self, subcalls = SubCa
         "fn=~w:~w/~b~n"
         "1 ~b~n",
         [pid_to_list(Pid), M, M, F, A, Self]),
-    Block3 = orddict:fold(fun({CM, CF, CA}, {CCalls, Cumulative}, Acc) ->
+    Block3 = orddict:fold(fun(CMFA, {CCalls, Cumulative}, Acc) ->
+                {CM, CF, CA} = case CMFA of
+                                   undefined -> {undefined, undefined, 0};
+                                   Defined -> Defined
+                               end,
                 Block2 = io_lib:format("cfl=~w~n"
                     "cfn=~w:~w/~b~n"
                     "calls=~b 1~n"
