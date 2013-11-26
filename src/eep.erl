@@ -293,7 +293,7 @@ working_stat(Msgs, MinTime, MaxTime, StartTime) ->
 
 save_header(IOD, GTD) ->
     Block4 = io_lib:format("events: Time~n"
-                           "creator: Erlang Easy Profiling https://github.com/virtan/erlang-easy-profiling~n"
+                           "creator: Erlang Easy Profiling https://github.com/virtan/eep~n"
                            "summary: ~b~n~n",
                            [GTD]),
     file:write(IOD, iolist_to_binary(Block4)).
