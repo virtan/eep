@@ -1,7 +1,7 @@
 {application, eep,
  [
   {description, "Erlang Easy Profiling (dbg:trace* to kcachegrind)"},
-  {vsn, "1"},
+  {vsn, "1.0"},
   {registered, []},
   {applications, [
                   kernel,
