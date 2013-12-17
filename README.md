@@ -13,10 +13,10 @@ Main features:
  * ability to export call graphs in dot or image format
  * optional process separation
  * based on [dbg] [8] module and built-in low overhead [trace ports] [9]
+ * optionally route runtime data over network to minimize disk load
 
 Limitations:
  * doesn't work with natively compiled code
- * doesn't support sending collected runtime data over network (will appear in future versions)
  * doesn't support parent-child links (will appear in future versions)
 
   [6]: http://www.erlang.org/doc/man/fprof.html
@@ -66,6 +66,11 @@ Also
 4. Remove separation by erlang process
 <pre>
 $ grep -v "^ob=" callgrind.out.file_name > callgrind.out.merged_file_name
+</pre>
+5. Route runtime data to other host, then process trace on that host
+<pre>
+ (eep@otherhost) 1> eep:start_net_client("targethost", 1088, "file_name", wait).
+(eep@targethost) 1> eep:start_net_tracing(1088).
 </pre>
 
 Useful

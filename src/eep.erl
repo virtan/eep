@@ -3,6 +3,11 @@
          start_file_tracing/1,
          start_file_tracing/2,
          start_file_tracing/3,
+         start_net_tracing/1,
+         start_net_tracing/2,
+         start_net_tracing/3,
+         start_net_client/3,
+         start_net_client/4,
          stop_tracing/0,
          convert_tracing/1,
          convert_tracing/2,
@@ -14,19 +19,73 @@
         ]).
 
 start_file_tracing(FileName) ->
-    start_file_tracing(FileName, [], '_').
+    start_file_tracing(FileName, [], ['_']).
 
 start_file_tracing(FileName, Options) ->
-    start_file_tracing(FileName, Options, '_').
+    start_file_tracing(FileName, Options, ['_']).
 
 % Options:
 %     spawn — include link between parent and child processes (experimental and doesn't look well)
-start_file_tracing(FileName, Options, Module) ->
+% Note:
+%     specifying modules doesn't work as expected:
+%     return_to and scheduler in/out contain other modules too
+%     TODO: analyze later, may be apply filtering during conversion
+start_file_tracing(FileName, Options, Modules) ->
     TraceFun = dbg:trace_port(file, tracefile(FileName)),
     {ok, _Tracer} = dbg:tracer(port, TraceFun),
-    dbg:tpl(Module, []),
+    [dbg:tpl(Module, []) || Module <- Modules],
     dbg:p(all, [call, timestamp, return_to, arity, running] ++
         proplists:substitute_aliases([{spawn, procs}], Options)).
+
+start_net_tracing(Port) ->
+    start_net_tracing(Port, [], ['_']).
+
+start_net_tracing(Port, Options) ->
+    start_net_tracing(Port, Options, ['_']).
+
+start_net_tracing(Port, Options, Modules) ->
+    TraceFun = dbg:trace_port(ip, Port),
+    {ok, _Tracer} = dbg:tracer(port, TraceFun),
+    [dbg:tpl(Module, []) || Module <- Modules],
+    dbg:p(all, [call, timestamp, return_to, arity, running] ++
+        proplists:substitute_aliases([{spawn, procs}], Options)).
+
+start_net_client(IP, Port, FileName) ->
+    start_net_client(IP, Port, FileName, dont_wait).
+
+start_net_client(Host, Port, FileName, Wait) ->
+    ConnectingF = fun (timer) -> 1000;
+                      (NextF1) ->
+                          case gen_tcp:connect(Host, Port, [binary, {packet, 0}, {active, false}]) of
+                              {ok, Sock1} ->
+                                  io:format("Connected to ~s:~p, gathering data...~n", [Host, Port]),
+                                  Sock1;
+                              {error, Reason} ->
+                                  io:format("Can't connect to ~s:~p: ~p~n", [Host, Port, Reason]),
+                                  timer:sleep(NextF1(timer)),
+                                  NextF1(NextF1)
+                          end
+                  end,
+    case ConnectingF(case Wait of dont_wait -> fun (timer) -> 0; (_) -> unsuccessful end; wait -> ConnectingF end) of
+        unsuccessful -> do_nothing;
+        Sock ->
+            {ok, IOD} = file:open(tracefile(FileName), [write, binary, delayed_write]),
+            ReadingF = fun(NextF) ->
+                               case gen_tcp:recv(Sock, 0) of
+                                   {ok, Data} ->
+                                       case file:write(IOD, Data) of
+                                           ok -> NextF(NextF);
+                                           {error, Reason} -> Reason
+                                       end;
+                                   {error, Reason} -> Reason
+                               end
+                       end,
+            ErrorReason = ReadingF(ReadingF),
+            file:close(IOD),
+            gen_tcp:close(Sock),
+            io:format("Net client stopped: ~p~n", [ErrorReason])
+    end,
+    done.
 
 stop_tracing() ->
     dbg:stop_clear().
