@@ -8,6 +8,8 @@
          start_net_tracing/3,
          start_net_client/3,
          start_net_client/4,
+         add_pid_to_tracing/1,
+         add_pid_to_tracing/2,
          stop_tracing/0,
          convert_tracing/1,
          convert_tracing/2,
@@ -32,10 +34,25 @@ start_file_tracing(FileName, Options) ->
 %     TODO: analyze later, may be apply filtering during conversion
 start_file_tracing(FileName, Options, Modules) ->
     TraceFun = dbg:trace_port(file, tracefile(FileName)),
+    start_tracing(TraceFun, Options, Modules).
+
+start_tracing(TraceFun, Options, Modules) ->
     {ok, _Tracer} = dbg:tracer(port, TraceFun),
     [dbg:tpl(Module, []) || Module <- Modules],
-    dbg:p(all, [call, timestamp, return_to, arity, running] ++
-        proplists:substitute_aliases([{spawn, procs}], Options)).
+    case proplists:get_value(coverage, Options, all) of
+        none -> dont_do_p;
+        Coverage ->
+            dbg:p(Coverage, [call, timestamp, return_to, arity, running] ++
+                  proplists:substitute_aliases([{spawn, procs}],
+                                               proplists:delete(coverage, Options)))
+    end.
+
+add_pid_to_tracing(Pid) -> add_pid_to_tracing(Pid, []).
+
+add_pid_to_tracing(Pid, Options) ->
+    dbg:p(Pid, [call, timestamp, return_to, arity, running] ++
+          proplists:substitute_aliases([{spawn, procs}],
+                                       proplists:delete(coverage, Options))).
 
 start_net_tracing(Port) ->
     start_net_tracing(Port, [], ['_']).
@@ -45,10 +62,7 @@ start_net_tracing(Port, Options) ->
 
 start_net_tracing(Port, Options, Modules) ->
     TraceFun = dbg:trace_port(ip, Port),
-    {ok, _Tracer} = dbg:tracer(port, TraceFun),
-    [dbg:tpl(Module, []) || Module <- Modules],
-    dbg:p(all, [call, timestamp, return_to, arity, running] ++
-        proplists:substitute_aliases([{spawn, procs}], Options)).
+    start_tracing(TraceFun, Options, Modules).
 
 start_net_client(IP, Port, FileName) ->
     start_net_client(IP, Port, FileName, dont_wait).
