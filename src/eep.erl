@@ -289,9 +289,10 @@ subcall_update({SMFA, SCalls}, SubCalls, SpentInSub) ->
 save_kcachegrind_format(FileName) ->
     erlang:process_flag(priority, high),
     RealFileName = kcgfile(FileName),
-    case file:open(RealFileName, [read, write, binary, delayed_write, read_ahead]) of
+    TempFileName = RealFileName ++ "tmp",
+    case file:open(TempFileName, [read, write, binary, delayed_write, read_ahead]) of
         {ok, IOD} ->
-            file:delete(RealFileName),
+            file:delete(TempFileName),
             {ok, Timer} = timer:send_interval(1000, status),
             {GTD} = save_receive_cycle(IOD, 1, ts(os:timestamp()), 0, ts(os:timestamp()), undefined, <<>>),
             timer:cancel(Timer),
