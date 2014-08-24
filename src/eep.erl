@@ -166,7 +166,7 @@ callgrind_convertor(Msg, #cvn_state{processes = Processes, saver = Saver, option
     Pid = element(2, Msg),
     case ets:lookup(Processes, Pid) of
         [] ->
-            Child = spawn_link(?MODULE, convertor_child, [#cvn_child_state{pid = Pid, saver = Saver, options = Options}]),
+            Child = spawn(?MODULE, convertor_child, [#cvn_child_state{pid = Pid, saver = Saver, options = Options}]),
             Child ! Msg,
             ets:insert(Processes, {Pid, Child}),
             State;
@@ -182,9 +182,10 @@ callgrind_convertor(default_state, {FileName, Options}) ->
         nofile -> self();
         _ -> spawn_link(?MODULE, save_kcachegrind_format, [FileName])
     end,
-    #cvn_state{saver = Saver, options = Options};
-callgrind_convertor(end_of_trace, #cvn_state{processes = Processes, saver = Saver}) ->
-    Saver ! {wait, Processes},
+    DefaultState = #cvn_state{saver = Saver, options = Options},
+    Saver ! {process_table, DefaultState#cvn_state.processes},
+    DefaultState;
+callgrind_convertor(end_of_trace, #cvn_state{processes = Processes}) ->
     ets:foldl(fun({_, Child}, _) -> Child ! finalize end, nothing, Processes),
     end_of_cycle;
 callgrind_convertor(UnknownMessage, #cvn_state{}) ->
@@ -246,8 +247,8 @@ convertor_child(#cvn_child_state{pid = Pid, delta = Delta, delta_ts = DeltaTS, m
                               min_time = min_ts(MinTime, TS),
                               max_time = max_ts(MaxTime, TS)});
         {trace_ts, Pid, Activity, _, TS} when Activity =:= exit orelse Activity =:= register orelse Activity =:= unregister
-                        orelse Activity =:= link orelse Activity =:= unlink
-                        orelse Activity =:= getting_linked orelse Activity =:= getting_unlinked ->
+                                              orelse Activity =:= link orelse Activity =:= unlink
+                                              orelse Activity =:= getting_linked orelse Activity =:= getting_unlinked ->
             convertor_child(State#cvn_child_state{
                               min_time = min_ts(MinTime, TS),
                               max_time = max_ts(MaxTime, TS)});
@@ -260,7 +261,7 @@ convertor_child(#cvn_child_state{pid = Pid, delta = Delta, delta_ts = DeltaTS, m
 convertor_unwind(MFA, _TS, nosub, {{value, #cvn_item{mfa = MFA, calls = Calls, returns = Returns} = Last},
                                          Dropped}, _) when Calls > Returns + 1 ->
     queue:in(Last#cvn_item{returns = Returns + 1}, Dropped);
-convertor_unwind(MFA, TS, nosub, {{value, #cvn_item{mfa = MFA, ts = TS}} = Last, Dropped}, _) ->
+convertor_unwind(MFA, TS, nosub, {{value, #cvn_item{mfa = MFA, ts = TS} = Last}, Dropped}, _) ->
     % unexpected frame
     queue:in(Last#cvn_item{ts = ts(TS)}, Dropped);
 convertor_unwind(MFA, TS, nosub, {{value, #cvn_item{mfa = CMFA, self = Self, calls = CCalls, ts = CTS} = Last},
@@ -293,7 +294,7 @@ save_kcachegrind_format(FileName) ->
         {ok, IOD} ->
             file:delete(RealFileName),
             {ok, Timer} = timer:send_interval(1000, status),
-            {GTD} = save_receive_cycle(IOD, 1, ts(os:timestamp()), 0, ts(os:timestamp()), undefined, <<>>),
+            {GTD} = save_receive_cycle(IOD, 1, ts(os:timestamp()), 0, ts(os:timestamp()), <<>>, 0, undefined),
             timer:cancel(Timer),
             {ok, IOD2} = file:open(RealFileName, [write, binary, delayed_write]),
             save_header(IOD2, GTD),
@@ -307,34 +308,39 @@ save_kcachegrind_format(FileName) ->
             error(problem)
     end.
 
-save_receive_cycle(IOD, P, MinTime, MaxTime, StartTime, Waiting, Buffer) ->
+save_receive_cycle(IOD, P, MinTime, MaxTime, StartTime, Buffer, Stuck, ProcessTable) ->
     receive
+        status when Stuck >= 2 ->
+            working_stat(P, MinTime, max(MinTime, MaxTime), StartTime),
+            io:format("No end_of_trace and no data, finishing forcibly (~b processes)~n", [ets:info(ProcessTable, size)]),
+            ets:foldl(fun({_, Child}, _) -> Child ! finalize end, nothing, ProcessTable),
+            save_receive_cycle(IOD, P, MinTime, MaxTime, StartTime, Buffer, Stuck + 1, ProcessTable);
         status ->
             working_stat(P, MinTime, max(MinTime, MaxTime), StartTime),
-            save_receive_cycle(IOD, P, MinTime, MaxTime, StartTime, Waiting, Buffer);
+            save_receive_cycle(IOD, P, MinTime, MaxTime, StartTime, Buffer, Stuck + 1, ProcessTable);
         {bytes, Bytes, TS} ->
             NewBuffer = case size(Buffer) of
                 N when N < 20*1024*1024 -> <<Buffer/binary, Bytes/binary>>;
                 _ -> file:write(IOD, <<Buffer/binary, Bytes/binary>>), <<>>
             end,
-            save_receive_cycle(IOD, P + 1, min_ts(MinTime, TS), max_ts(MaxTime, TS), StartTime, Waiting, NewBuffer);
-        {wait, Processes} ->
-            save_receive_cycle(IOD, P, MinTime, MaxTime, StartTime, Processes, Buffer);
+            save_receive_cycle(IOD, P + 1, min_ts(MinTime, TS), max_ts(MaxTime, TS), StartTime, NewBuffer, 0, ProcessTable);
+        {process_table, NewProcessTable} ->
+            save_receive_cycle(IOD, P, MinTime, MaxTime, StartTime, Buffer, Stuck, NewProcessTable);
         {finalize, Pid, MinTime1, MaxTime1} ->
-            ets:delete(Waiting, Pid),
+            ets:delete(ProcessTable, Pid),
             Minimum = min(MinTime, MinTime1),
             Maximum = max(MaxTime, MaxTime1),
-            case ets:info(Waiting, size) of
+            case ets:info(ProcessTable, size) of
                 0 ->
                     file:write(IOD, Buffer),
                     working_stat(P, Minimum, Maximum, StartTime),
-                    ets:delete(Waiting),
+                    ets:delete(ProcessTable),
                     {td(Minimum, Maximum)};
                 _ ->
-                    save_receive_cycle(IOD, P, Minimum, Maximum, StartTime, Waiting, Buffer)
+                    save_receive_cycle(IOD, P, Minimum, Maximum, StartTime, Buffer, Stuck, ProcessTable)
             end;
         _ ->
-            save_receive_cycle(IOD, P, MinTime, MaxTime, StartTime, Waiting, Buffer)
+            save_receive_cycle(IOD, P, MinTime, MaxTime, StartTime, Buffer, Stuck, ProcessTable)
     end.
 
 pid_item_to_bytes({Pid, #cvn_item{mfa = undefined} = Item}) ->
