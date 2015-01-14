@@ -53,7 +53,7 @@ Also
 
 1. Collect specific module calls only
 <pre>
-1> eep:start_file_tracing("file_name", [], my_module).
+1> eep:start_file_tracing("file_name", [], [my_module_1, my_module_2]).
 </pre>
 2. Include time spent waiting for event (not running)
 <pre>
