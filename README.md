@@ -32,7 +32,7 @@ On target system:
 1. Make sure the target system can use eep module (link eep to your rebar project or place compiled eep.beam at any code path)
 2. Collect runtime data to local file
 <pre>
-1> eep:start_file_tracing("file_name"), timer:sleep(60000), eep:stop_tracing().
+1> eep:start_file_tracing("file_name"), timer:sleep(10000), eep:stop_tracing().
 </pre>
 3. Copy $PWD/file_name.trace from the target system
 
