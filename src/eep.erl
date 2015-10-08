@@ -424,6 +424,7 @@ max_ts(One, Two) ->
 
 receive_all(Prev) ->
     receive
+        {process_table, _} -> receive_all(Prev);
         M -> receive_all([M | Prev])
     after 500 -> lists:reverse(Prev)
     end.
@@ -442,8 +443,8 @@ test_unwind_1() ->
         {trace_ts, Pid, call, {a,b,1}, 7},
         {trace_ts, Pid, return_to, {x,b,1}, 10}
     ],
-    lists:foldl(fun(El, St) -> callgrind_convertor(El, St) end, callgrind_convertor(default_state, nofile), TestSet),
-    [{bytes,<<"ob=<0.1.0>\nfl=a\nfn=a:b/1\n1 3\n\n">>,1}] = receive_all([]).
+    lists:foldl(fun(El, St) -> callgrind_convertor(El, St) end, callgrind_convertor(default_state, {nofile, []}), TestSet),
+    [{bytes,<<"ob=<0.1.0>\nfl=a\nfn=a:b/1\n1 3\n\n">>,10}] = receive_all([]).
 
 test_unwind_2() ->
     Pid = list_to_pid("<0.1.0>"),
@@ -453,10 +454,10 @@ test_unwind_2() ->
         {trace_ts, Pid, call, {a,b,3}, 7},
         {trace_ts, Pid, return_to, {x,b,1}, 10}
     ],
-    lists:foldl(fun(El, St) -> callgrind_convertor(El, St) end, callgrind_convertor(default_state, nofile), TestSet),
-    [{bytes,<<"ob=<0.1.0>\nfl=a\nfn=a:b/3\n1 3\n\n">>,7},
-     {bytes,<<"ob=<0.1.0>\nfl=a\nfn=a:b/2\n1 4\ncfl=a\ncfn=a:b/3\ncalls=1 1\n1 3\n\n">>, 7},
-     {bytes,<<"ob=<0.1.0>\nfl=a\nfn=a:b/1\n1 2\ncfl=a\ncfn=a:b/2\ncalls=1 1\n1 7\n\n">>, 3}] = receive_all([]).
+    lists:foldl(fun(El, St) -> callgrind_convertor(El, St) end, callgrind_convertor(default_state, {nofile, []}), TestSet),
+    [{bytes,<<"ob=<0.1.0>\nfl=a\nfn=a:b/3\n1 3\n\n">>,10},
+     {bytes,<<"ob=<0.1.0>\nfl=a\nfn=a:b/2\n1 4\ncfl=a\ncfn=a:b/3\ncalls=1 1\n1 3\n\n">>, 10},
+     {bytes,<<"ob=<0.1.0>\nfl=a\nfn=a:b/1\n1 2\ncfl=a\ncfn=a:b/2\ncalls=1 1\n1 7\n\n">>, 10}] = receive_all([]).
 
 test_unwind_3() ->
     Pid = list_to_pid("<0.1.0>"),
@@ -480,13 +481,13 @@ test_unwind_3() ->
         {trace_ts,Pid,return_to,{prim_file,drv_command_nt,3},{1384,248547,512397}},
         {trace_ts,Pid,return_to,{prim_file,write,2},{1384,248547,512404}}
     ],
-    lists:foldl(fun(El, St) -> callgrind_convertor(El, St) end, callgrind_convertor(default_state, nofile), TestSet),
-    [{bytes,<<"ob=<0.1.0>\nfl=erlang\nfn=erlang:port_command/2\n1 3\n\n">>,1384248547512344},
-     {bytes,<<"ob=<0.1.0>\nfl=erlang\nfn=erlang:bump_reductions/1\n1 9\n\n">>,1384248547512357},
-     {bytes,<<"ob=<0.1.0>\nfl=prim_file\nfn=prim_file:get_uint32/1\n1 2\n\n">>,1384248547512380},
-     {bytes,<<"ob=<0.1.0>\nfl=prim_file\nfn=prim_file:get_uint32/1\n1 2\n\n">>,1384248547512383},
-     {bytes,<<"ob=<0.1.0>\nfl=prim_file\nfn=prim_file:get_uint64/1\n1 7\ncfl=prim_file\ncfn=prim_file:get_uint32/1\ncalls=2 1\n1 4\n\n">>,1384248547512385},
-     {bytes,<<"ob=<0.1.0>\nfl=prim_file\nfn=prim_file:translate_response/2\n1 13\ncfl=prim_file\ncfn=prim_file:get_uint64/1\ncalls=1 1\n1 11\n\n">>,1384248547512386},
-     {bytes,<<"ob=<0.1.0>\nfl=prim_file\nfn=prim_file:drv_get_response/1\n1 8\ncfl=erlang\ncfn=erlang:bump_reductions/1\ncalls=1 1\n1 9\ncfl=prim_file\ncfn=prim_file:translate_response/2\ncalls=1 1\n1 24\n\n">>,1384248547512392},
-     {bytes,<<"ob=<0.1.0>\nfl=prim_file\nfn=prim_file:drv_get_response/2\n1 2\ncfl=prim_file\ncfn=prim_file:drv_get_response/1\ncalls=1 1\n1 41\n\n">>,1384248547512356},
-     {bytes,<<"ob=<0.1.0>\nfl=prim_file\nfn=prim_file:drv_command_nt/3\n1 16\ncfl=erlang\ncfn=erlang:port_command/2\ncalls=1 1\n1 3\ncfl=prim_file\ncfn=prim_file:drv_get_response/2\ncalls=1 1\n1 43\n\n">>,1384248547512397}] = receive_all([]).
+    lists:foldl(fun(El, St) -> callgrind_convertor(El, St) end, callgrind_convertor(default_state, {nofile, []}), TestSet),
+    [{bytes,<<"ob=<0.1.0>\nfl=erlang\nfn=erlang:port_command/2\n1 3\n\n">>,1384248547512347},
+     {bytes,<<"ob=<0.1.0>\nfl=erlang\nfn=erlang:bump_reductions/1\n1 9\n\n">>,1384248547512366},
+     {bytes,<<"ob=<0.1.0>\nfl=prim_file\nfn=prim_file:get_uint32/1\n1 2\n\n">>,1384248547512382},
+     {bytes,<<"ob=<0.1.0>\nfl=prim_file\nfn=prim_file:get_uint32/1\n1 2\n\n">>,1384248547512385},
+     {bytes,<<"ob=<0.1.0>\nfl=prim_file\nfn=prim_file:get_uint64/1\n1 7\ncfl=prim_file\ncfn=prim_file:get_uint32/1\ncalls=2 1\n1 4\n\n">>,1384248547512386},
+     {bytes,<<"ob=<0.1.0>\nfl=prim_file\nfn=prim_file:translate_response/2\n1 13\ncfl=prim_file\ncfn=prim_file:get_uint64/1\ncalls=1 1\n1 11\n\n">>,1384248547512392},
+     {bytes,<<"ob=<0.1.0>\nfl=prim_file\nfn=prim_file:drv_get_response/1\n1 8\ncfl=erlang\ncfn=erlang:bump_reductions/1\ncalls=1 1\n1 9\ncfl=prim_file\ncfn=prim_file:translate_response/2\ncalls=1 1\n1 24\n\n">>,1384248547512397},
+     {bytes,<<"ob=<0.1.0>\nfl=prim_file\nfn=prim_file:drv_get_response/2\n1 2\ncfl=prim_file\ncfn=prim_file:drv_get_response/1\ncalls=1 1\n1 41\n\n">>,1384248547512397},
+     {bytes,<<"ob=<0.1.0>\nfl=prim_file\nfn=prim_file:drv_command_nt/3\n1 16\ncfl=erlang\ncfn=erlang:port_command/2\ncalls=1 1\n1 3\ncfl=prim_file\ncfn=prim_file:drv_get_response/2\ncalls=1 1\n1 43\n\n">>,1384248547512404}] = receive_all([]).
