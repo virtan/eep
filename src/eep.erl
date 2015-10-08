@@ -133,8 +133,7 @@ kcgfile(FileName) ->
 dumpfile(FileName) ->
     FileName ++ ".dump".
 
--record(cvn_state, {processes = ets:new(unnamed, [public, {write_concurrency, true}, {read_concurrency, true}]),
-        saver, options}).
+-record(cvn_state, {processes, saver, options}).
 -record(cvn_child_state, {pid, delta = 0, delta_ts = undefined, min_time = undefined, max_time = undefined, saver,
         stack = queue:new(), options}).
 -record(cvn_item, {mfa, self = 0, ts, calls = 1, returns = 0, subcalls = orddict:new()}).
@@ -178,12 +177,16 @@ callgrind_convertor({drop, _}, State) ->
     % ignore dropped
     State;
 callgrind_convertor(default_state, {FileName, Options}) ->
+    Processes = ets:new(unnamed, [public, {write_concurrency, true}, {read_concurrency, true}]),
     Saver = case FileName of
         nofile -> self();
-        _ -> spawn_link(?MODULE, save_kcachegrind_format, [FileName])
+        _ ->
+          Pid = spawn_link(?MODULE, save_kcachegrind_format, [FileName]),
+          ets:give_away(Processes, Pid, none),
+          Pid
     end,
-    DefaultState = #cvn_state{saver = Saver, options = Options},
-    Saver ! {process_table, DefaultState#cvn_state.processes},
+    DefaultState = #cvn_state{saver = Saver, options = Options, processes = Processes},
+    Saver ! {process_table, Processes},
     DefaultState;
 callgrind_convertor(end_of_trace, #cvn_state{processes = Processes}) ->
     ets:foldl(fun({_, Child}, _) -> Child ! finalize end, nothing, Processes),
